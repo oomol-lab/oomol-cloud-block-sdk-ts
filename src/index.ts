@@ -34,16 +34,16 @@ interface UploadFinalResponse {
 }
 
 export class OomolBlockClient {
+  private readonly apiKey: string;
   private readonly baseUrl: string;
   private readonly fetchFn: typeof fetch;
   private readonly defaultHeaders: Record<string, string>;
-  private readonly credentials: boolean;
 
-  constructor(options: ClientOptions = {}) {
+  constructor(options: ClientOptions) {
+    this.apiKey = options.apiKey;
     this.baseUrl = options.baseUrl ?? DEFAULT_BASE_URL;
     this.fetchFn = options.fetch ?? fetch;
     this.defaultHeaders = options.defaultHeaders ?? {};
-    this.credentials = options.credentials ?? true;
   }
 
   async createTask(request: BlockTaskRequest): Promise<BlockTaskResponse> {
@@ -138,7 +138,13 @@ export class OomolBlockClient {
       url.searchParams.set("lang", lang);
     }
 
-    const res = await this.fetchFn(url.toString(), { method: "GET" });
+    const res = await this.fetchFn(url.toString(), {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        ...this.defaultHeaders,
+      },
+    });
     if (!res.ok) {
       let body: unknown;
       try {
@@ -187,12 +193,14 @@ export class OomolBlockClient {
   ): Promise<UploadInitResponse> {
     const res = await this.fetchFn(`${uploadBaseUrl}/init`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${this.apiKey}`,
+      },
       body: JSON.stringify({
         file_extension: `.${fileExtension}`,
         size: fileSize,
       }),
-      credentials: "include",
       signal,
     });
 
@@ -318,7 +326,9 @@ export class OomolBlockClient {
   private async uploadFinal(uploadBaseUrl: string, uploadId: string, signal?: AbortSignal): Promise<string> {
     const res = await this.fetchFn(`${uploadBaseUrl}/${encodeURIComponent(uploadId)}/url`, {
       method: "GET",
-      credentials: "include",
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+      },
       signal,
     });
 
@@ -339,14 +349,11 @@ export class OomolBlockClient {
   private async request(path: string, init: RequestInit): Promise<unknown> {
     const url = this.buildUrl(path);
     const headers = {
+      Authorization: `Bearer ${this.apiKey}`,
       ...this.defaultHeaders,
       ...(init.headers ?? {}),
     } as Record<string, string>;
-    const res = await this.fetchFn(url, {
-      ...init,
-      headers,
-      credentials: this.credentials ? "include" : "omit",
-    });
+    const res = await this.fetchFn(url, { ...init, headers });
     if (!res.ok) {
       let body: unknown;
       try {

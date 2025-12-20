@@ -85,14 +85,14 @@ export interface AwaitOptions {
  * Configuration options for the OomolBlockClient.
  */
 export interface ClientOptions {
+  /** API key for authentication */
+  apiKey: string;
   /** Base URL of the task API. @default "https://cloud-task.oomol.com/v1" */
   baseUrl?: string;
   /** Custom fetch implementation (useful for testing or environments without native fetch) */
   fetch?: typeof fetch;
   /** Additional headers to include in all requests */
   defaultHeaders?: Record<string, string>;
-  /** Whether to include credentials (cookies) in requests. @default true */
-  credentials?: boolean;
 }
 
 /**
