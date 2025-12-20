@@ -1,33 +1,26 @@
 {
   "name": "oomol-cloud-block-sdk",
   "version": "1.0.0",
-  "description": "SDK for OOMOL Cloud Block API - Create and execute serverless block tasks",
+  "description": "TypeScript SDK for Oomol Cloud Block API",
+  "license": "MIT",
+  "type": "module",
   "main": "dist/index.js",
-  "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
-  "scripts": {
-    "build": "tsup src/index.ts --format cjs,esm --dts",
-    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
-    "prepublishOnly": "npm run build"
-  },
   "keywords": [
     "oomol",
-    "cloud",
-    "block",
-    "serverless",
-    "sdk"
+    "cloud-block",
+    "sdk",
+    "typescript"
   ],
-  "author": "",
-  "license": "MIT",
-  "devDependencies": {
-    "@types/node": "^20.0.0",
-    "tsup": "^8.0.0",
-    "typescript": "^5.3.0"
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
   },
-  "dependencies": {
-    "axios": "^1.6.0"
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3"
   }
 }

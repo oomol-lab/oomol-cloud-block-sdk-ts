@@ -1,195 +1,162 @@
 /**
- * 任务状态枚举
+ * Possible states of a block task during its lifecycle.
+ * - `pending`: Task is queued and waiting to be processed
+ * - `running`: Task is currently being executed
+ * - `success`: Task completed successfully
+ * - `failed`: Task failed with an error
  */
-export enum TaskStatus {
-  PENDING = "pending",
-  SUCCESS = "success",
-  FAILED = "failed",
+export type TaskStatus = "pending" | "running" | "success" | "failed";
+
+/**
+ * Request payload for creating a new block task.
+ */
+export interface BlockTaskRequest {
+  /** The name of the block to execute */
+  blockName: string;
+  /** The package name containing the block */
+  packageName: string;
+  /** The package version. @default "latest" */
+  packageVersion: string;
+  /** Input values to pass to the block */
+  inputValues: Record<string, unknown>;
+  /** Optional webhook URL to receive task completion notifications */
+  webhookUrl?: string;
+  /** Optional metadata to attach to the task */
+  metadata?: Record<string, unknown>;
 }
 
 /**
- * 创建任务的参数
+ * Response returned after creating a block task.
  */
-export interface RunBlockParams {
-  /** Block 名称 */
-  readonly blockName: string;
-  /** 输入参数 */
-  readonly inputValues: Record<string, any>;
-  /** Package 名称 */
-  readonly packageName: string;
-  /** Package 版本，默认 "latest" */
-  readonly packageVersion: string;
+export interface BlockTaskResponse {
+  /** The unique identifier of the created task */
+  taskID: string;
 }
 
 /**
- * 创建任务的响应
+ * Response containing the result of a block task.
+ * @template T - Type of the result data
  */
-export interface RunBlockResponse {
-  /** 任务 ID */
-  readonly taskID: string;
+export interface TaskResultResponse<T = unknown> {
+  /** Current status of the task */
+  status: TaskStatus;
+  /** Progress percentage (0-100), only available when task is running */
+  progress?: number;
+  /** Result data returned by the task on success */
+  resultData?: T;
+  /** Result file URL (if available) */
+  resultURL?: string;
+  /** Error message if the task failed */
+  error?: string;
 }
 
 /**
- * 任务结果响应（联合类型）
+ * Strategy for polling interval backoff.
  */
-export type TaskResultResponse =
-  | {
-      /** 任务执行中 */
-      readonly status: "pending";
-      /** 进度 0-100 */
-      readonly progress: number;
-    }
-  | {
-      /** 任务执行成功 */
-      readonly status: "success";
-      /** 结果文件 URL */
-      readonly resultURL: string;
-      /** 结果数据 */
-      readonly resultData: Record<string, any>;
-    }
-  | {
-      /** 任务执行失败 */
-      readonly status: "failed";
-      /** 失败消息 */
-      readonly failedMessage: string;
-    };
+export enum BackoffStrategy {
+  /** Use a fixed interval between polls */
+  Fixed = "fixed",
+  /** Increase interval exponentially between polls (recommended for long-running tasks) */
+  Exponential = "exp",
+}
 
 /**
- * 等待任务完成的选项
+ * Options for awaiting task completion.
  */
-export interface AwaitTaskOptions {
-  /** 轮询间隔（毫秒），默认 1000ms */
+export interface AwaitOptions {
+  /** Base polling interval in milliseconds. @default 3000 */
   intervalMs?: number;
-  /** 最大轮询间隔（毫秒），默认 10000ms */
-  maxIntervalMs?: number;
-  /** 最大超时时间（毫秒），默认 30 分钟 */
-  maxTimeoutMs?: number;
-  /** 进度回调函数 */
-  onProgress?: (progress: number) => void;
-  /** AbortSignal 用于取消任务 */
+  /** Maximum time to wait for task completion in milliseconds. If exceeded, throws TimeoutError */
+  timeoutMs?: number;
+  /** Callback invoked on each poll with current progress and status */
+  onProgress?: (progress: number | undefined, status: TaskStatus) => void;
+  /** AbortSignal to cancel the polling operation */
   signal?: AbortSignal;
-}
-
-/**
- * 文件上传初始化响应
- */
-export interface InitUploadResponse {
-  data: {
-    /** 上传 ID */
-    upload_id: string;
-    /** 每个分片的大小（字节） */
-    part_size: number;
-    /** 总分片数 */
-    total_parts: number;
-    /** 预签名 URL 映射（分片编号 -> URL） */
-    presigned_urls: Record<number, string>;
+  /** Backoff configuration for polling intervals */
+  backoff?: {
+    /** Backoff strategy to use. @default BackoffStrategy.Exponential */
+    strategy?: BackoffStrategy;
+    /** Maximum interval between polls in milliseconds. @default 3000 */
+    maxIntervalMs?: number;
   };
 }
 
 /**
- * 文件上传完成响应
+ * Configuration options for the OomolBlockClient.
  */
-export interface FinalUrlResponse {
-  data: {
-    /** 文件访问 URL */
-    url: string;
-    /** 过期时间 */
-    expires_at: string;
-    /** 文件名 */
-    file_name: string;
-    /** 文件大小 */
-    file_size: number;
-    /** MIME 类型 */
-    mime_type: string;
-  };
-}
-
-/**
- * 文件上传选项
- */
-export interface UploadOptions {
-  /** AbortSignal 用于取消上传 */
-  readonly signal?: AbortSignal;
-  /** 进度回调函数（0-100） */
-  readonly onProgress?: (progress: number) => void;
-  /** 重试次数，默认 3 */
-  readonly retries?: number;
-}
-
-/**
- * SDK 配置选项
- */
-export interface OomolCloudBlockSDKConfig {
-  /** 任务 API 基础 URL，默认 https://cloud-task.oomol.com/v1 */
-  taskApiBase?: string;
-  /** 上传 API 基础 URL，默认 https://llm.oomol.com/api/tasks/files/remote-cache */
-  uploadApiBase?: string;
-  /** 是否包含凭证（cookies），默认 true */
+export interface ClientOptions {
+  /** Base URL of the task API. @default "https://cloud-task.oomol.com/v1" */
+  baseUrl?: string;
+  /** Custom fetch implementation (useful for testing or environments without native fetch) */
+  fetch?: typeof fetch;
+  /** Additional headers to include in all requests */
+  defaultHeaders?: Record<string, string>;
+  /** Whether to include credentials (cookies) in requests. @default true */
   credentials?: boolean;
 }
 
 /**
- * Block 类型枚举
+ * Options for file upload operations.
  */
-export type BlockInfoType = "task" | "subflow";
-
-/**
- * Block 输入句柄定义
- */
-export interface BlockInfoInputHandleDef {
-  readonly handle: string;
-  readonly description?: string;
-  readonly json_schema?: any;
-  readonly nullable?: boolean;
-  readonly value?: any;
+export interface UploadOptions {
+  /** Base URL of the upload API. @default "https://llm.oomol.com/api/tasks/files/remote-cache" */
+  uploadBaseUrl?: string;
+  /** Progress callback function (0-100) */
+  onProgress?: (progress: number) => void;
+  /** Number of retry attempts for failed uploads. @default 3 */
+  retries?: number;
+  /** AbortSignal to cancel the upload operation */
+  signal?: AbortSignal;
 }
 
 /**
- * Block 输出句柄定义
+ * Parameters for listing blocks in a package.
  */
-export interface BlockInfoOutputHandleDef {
-  readonly handle: string;
-  readonly description?: string;
-  readonly json_schema?: any;
-  readonly nullable?: boolean;
+export interface ListBlocksRequest {
+  /** Package name */
+  packageName: string;
+  /** Package version */
+  packageVersion: string;
+  /** Language code (optional), e.g., "zh-CN" */
+  lang?: string;
 }
 
 /**
- * Block 信息
+ * Block type enumeration.
+ */
+export type BlockType = "task" | "subflow";
+
+/**
+ * Block input handle definition.
+ */
+export interface BlockInputHandle {
+  handle: string;
+  description?: string;
+  jsonSchema?: unknown;
+  nullable?: boolean;
+  value?: unknown;
+}
+
+/**
+ * Block output handle definition.
+ */
+export interface BlockOutputHandle {
+  handle: string;
+  description?: string;
+  jsonSchema?: unknown;
+  nullable?: boolean;
+}
+
+/**
+ * Block information structure.
  */
 export interface BlockInfo {
-  readonly type: BlockInfoType;
-  readonly resourceName: string;
-  readonly name: string;
-  readonly title?: string;
-  readonly description?: string;
-  readonly icon?: string;
-  readonly inputHandleDefs?: readonly BlockInfoInputHandleDef[];
-  readonly outputHandleDefs?: readonly BlockInfoOutputHandleDef[];
-}
-
-/**
- * 列出 Block 的参数
- */
-export interface ListBlocksParams {
-  /** Package 名称 */
-  readonly packageName: string;
-  /** Package 版本 */
-  readonly packageVersion: string;
-  /** 语言代码（可选），例如 "zh-CN" */
-  readonly lang?: string;
-}
-
-/**
- * 自定义错误类型
- */
-export class OomolCloudBlockError extends Error {
-  constructor(
-    message: string,
-    public readonly code?: string,
-    public readonly statusCode?: number,
-  ) {
-    super(message);
-    this.name = "OomolCloudBlockError";
-  }
+  type: BlockType;
+  resourceName: string;
+  name: string;
+  title?: string;
+  description?: string;
+  icon?: string;
+  inputHandleDefs?: BlockInputHandle[];
+  outputHandleDefs?: BlockOutputHandle[];
 }
