@@ -3,15 +3,21 @@ import {
   AwaitOptions,
   BackoffStrategy,
   BlockInfo,
-  BlockTaskRequest,
-  BlockTaskResponse,
   ClientOptions,
+  CreateTaskRequest,
+  CreateTaskResponse,
+  DashboardResponse,
+  LatestTasksResponse,
   ListBlocksRequest,
+  ListTasksQuery,
+  TaskListResponse,
+  TaskResultData,
+  TaskDetailResponse,
   TaskResultResponse,
   UploadOptions,
 } from "./types.js";
 
-const DEFAULT_BASE_URL = "https://cloud-task.oomol.com/v1";
+const DEFAULT_BASE_URL = "https://cloud-task.oomol.com";
 const DEFAULT_UPLOAD_BASE_URL = "https://llm.oomol.com/api/tasks/files/remote-cache";
 
 interface UploadInitResponse {
@@ -34,42 +40,66 @@ interface UploadFinalResponse {
 }
 
 export class OomolBlockClient {
-  private readonly apiKey: string;
+  private readonly apiKey?: string;
   private readonly baseUrl: string;
   private readonly fetchFn: typeof fetch;
   private readonly defaultHeaders: Record<string, string>;
+  private readonly credentials: RequestCredentials;
 
   constructor(options: ClientOptions) {
     this.apiKey = options.apiKey;
-    this.baseUrl = options.baseUrl ?? DEFAULT_BASE_URL;
+    this.baseUrl = this.normalizeBaseUrl(options.baseUrl ?? DEFAULT_BASE_URL);
     this.fetchFn = options.fetch ?? fetch;
     this.defaultHeaders = options.defaultHeaders ?? {};
+    this.credentials = options.credentials ?? "include";
   }
 
-  async createTask(request: BlockTaskRequest): Promise<BlockTaskResponse> {
-    const body: Record<string, unknown> = {
-      blockName: request.blockName,
-      packageName: request.packageName,
-      packageVersion: request.packageVersion,
-      inputValues: request.inputValues,
-    };
-    if (request.webhookUrl) body.webhookUrl = request.webhookUrl;
-    if (request.metadata) body.metadata = request.metadata;
-
-    const res = await this.request("/task/serverless", {
+  async createTask(request: CreateTaskRequest): Promise<CreateTaskResponse> {
+    const res = await this.request("/v3/users/me/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify(this.normalizeCreateTaskRequest(request)),
     });
-    return res as BlockTaskResponse;
+    return res as CreateTaskResponse;
   }
 
-  async getTaskResult<T = unknown>(taskID: string): Promise<TaskResultResponse<T>> {
-    const res = await this.request(`/task/${taskID}/result`, { method: "GET" });
+  async listTasks(query: ListTasksQuery = {}): Promise<TaskListResponse> {
+    const queryString = this.buildTasksQueryString(query);
+    const path = queryString ? `/v3/users/me/tasks?${queryString}` : "/v3/users/me/tasks";
+    const res = await this.request(path, { method: "GET" });
+    return res as TaskListResponse;
+  }
+
+  async getLatestTasks(workloadIDs: string[] | string): Promise<LatestTasksResponse> {
+    const normalized = this.normalizeWorkloadIDs(workloadIDs);
+    const query = new URLSearchParams({ workloadIDs: normalized });
+    const res = await this.request(`/v3/users/me/tasks/latest?${query.toString()}`, { method: "GET" });
+    return res as LatestTasksResponse;
+  }
+
+  async getDashboard(): Promise<DashboardResponse> {
+    const res = await this.request("/v3/users/me/dashboard", { method: "GET" });
+    return res as DashboardResponse;
+  }
+
+  async getTask(taskID: string): Promise<TaskDetailResponse> {
+    const res = await this.request(`/v3/users/me/tasks/${encodeURIComponent(taskID)}`, { method: "GET" });
+    return res as TaskDetailResponse;
+  }
+
+  async getTaskDetail(taskID: string): Promise<TaskDetailResponse> {
+    return this.getTask(taskID);
+  }
+
+  async getTaskResult<T = TaskResultData>(taskID: string, signal?: AbortSignal): Promise<TaskResultResponse<T>> {
+    const res = await this.request(`/v3/users/me/tasks/${encodeURIComponent(taskID)}/result`, {
+      method: "GET",
+      signal,
+    });
     return res as TaskResultResponse<T>;
   }
 
-  async awaitResult<T = unknown>(
+  async awaitResult<T = TaskResultData>(
     taskID: string,
     options: AwaitOptions = {}
   ): Promise<TaskResultResponse<T>> {
@@ -78,20 +108,20 @@ export class OomolBlockClient {
     const strategy = options.backoff?.strategy ?? BackoffStrategy.Exponential;
     const controller = new AbortController();
     const externalSignal = options.signal;
-    let aborted = false;
+    let timedOut = false;
     if (externalSignal) {
-      if (externalSignal.aborted) aborted = true;
-      externalSignal.addEventListener("abort", () => {
-        aborted = true;
+      if (externalSignal.aborted) {
         controller.abort();
-      });
+      } else {
+        externalSignal.addEventListener("abort", () => controller.abort(), { once: true });
+      }
     }
 
     const timeoutMs = options.timeoutMs;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     if (typeof timeoutMs === "number" && timeoutMs > 0) {
       timeoutId = setTimeout(() => {
-        aborted = true;
+        timedOut = true;
         controller.abort();
       }, timeoutMs);
     }
@@ -99,8 +129,28 @@ export class OomolBlockClient {
     try {
       let attempt = 0;
       while (true) {
-        if (aborted) throw new TimeoutError();
-        const result = await this.getTaskResult<T>(taskID);
+        let result: TaskResultResponse<T>;
+        try {
+          result = await this.getTaskResult<T>(taskID, controller.signal);
+        } catch (error) {
+          if (this.isAbortError(error)) {
+            if (timedOut) {
+              throw new TimeoutError();
+            }
+            throw error;
+          }
+          if (!this.isTransientTaskResultError(error)) {
+            throw error;
+          }
+          attempt += 1;
+          const retryInterval =
+            strategy === BackoffStrategy.Exponential
+              ? Math.min(maxInterval, intervalBase * Math.pow(1.5, attempt))
+              : intervalBase;
+          await this.delay(retryInterval, controller.signal, timedOut);
+          continue;
+        }
+
         if (result.status === "success") {
           return result;
         }
@@ -113,15 +163,15 @@ export class OomolBlockClient {
           strategy === BackoffStrategy.Exponential
             ? Math.min(maxInterval, intervalBase * Math.pow(1.5, attempt))
             : intervalBase;
-        await new Promise((r) => setTimeout(r, nextInterval));
+        await this.delay(nextInterval, controller.signal, timedOut);
       }
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
     }
   }
 
-  async createAndWait<T = unknown>(
-    request: BlockTaskRequest,
+  async createAndWait<T = TaskResultData>(
+    request: CreateTaskRequest,
     awaitOptions: AwaitOptions = {}
   ): Promise<{ taskID: string; result: TaskResultResponse<T> }> {
     const { taskID } = await this.createTask(request);
@@ -140,10 +190,8 @@ export class OomolBlockClient {
 
     const res = await this.fetchFn(url.toString(), {
       method: "GET",
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        ...this.defaultHeaders,
-      },
+      headers: this.buildHeaders(),
+      credentials: this.credentials,
     });
     if (!res.ok) {
       let body: unknown;
@@ -193,14 +241,12 @@ export class OomolBlockClient {
   ): Promise<UploadInitResponse> {
     const res = await this.fetchFn(`${uploadBaseUrl}/init`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.apiKey}`,
-      },
+      headers: this.buildHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         file_extension: `.${fileExtension}`,
         size: fileSize,
       }),
+      credentials: this.credentials,
       signal,
     });
 
@@ -326,9 +372,8 @@ export class OomolBlockClient {
   private async uploadFinal(uploadBaseUrl: string, uploadId: string, signal?: AbortSignal): Promise<string> {
     const res = await this.fetchFn(`${uploadBaseUrl}/${encodeURIComponent(uploadId)}/url`, {
       method: "GET",
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-      },
+      headers: this.buildHeaders(),
+      credentials: this.credentials,
       signal,
     });
 
@@ -348,12 +393,8 @@ export class OomolBlockClient {
 
   private async request(path: string, init: RequestInit): Promise<unknown> {
     const url = this.buildUrl(path);
-    const headers = {
-      Authorization: `Bearer ${this.apiKey}`,
-      ...this.defaultHeaders,
-      ...(init.headers ?? {}),
-    } as Record<string, string>;
-    const res = await this.fetchFn(url, { ...init, headers });
+    const headers = this.buildHeaders(init.headers);
+    const res = await this.fetchFn(url, { ...init, headers, credentials: init.credentials ?? this.credentials });
     if (!res.ok) {
       let body: unknown;
       try {
@@ -367,10 +408,156 @@ export class OomolBlockClient {
     return data;
   }
 
+  private normalizeCreateTaskRequest(request: CreateTaskRequest): Record<string, unknown> {
+    if ("packageName" in request) {
+      const serverlessBody: Record<string, unknown> = {
+        type: "serverless",
+        packageName: request.packageName,
+        packageVersion: request.packageVersion,
+        blockName: request.blockName,
+      };
+      if (request.inputValues !== undefined) {
+        serverlessBody.inputValues = request.inputValues;
+      }
+      return serverlessBody;
+    }
+
+    if ("projectID" in request) {
+      const webTaskBody: Record<string, unknown> = {
+        type: "web_task",
+        projectID: request.projectID,
+        blockName: request.blockName,
+      };
+      if (request.inputValues !== undefined) {
+        webTaskBody.inputValues = request.inputValues;
+      }
+      return webTaskBody;
+    }
+
+    const appletBody: Record<string, unknown> = {
+      type: request.type,
+      appletID: request.appletID,
+    };
+    if (request.inputValues !== undefined) {
+      appletBody.inputValues = request.inputValues;
+    }
+    return appletBody;
+  }
+
+  private buildTasksQueryString(query: ListTasksQuery): string {
+    const params = new URLSearchParams();
+    if (query.size !== undefined) {
+      if (!Number.isInteger(query.size) || query.size < 1 || query.size > 100) {
+        throw new Error("size must be an integer between 1 and 100");
+      }
+      params.set("size", String(query.size));
+    }
+    if (query.nextToken) {
+      params.set("nextToken", query.nextToken);
+    }
+    if (query.status) {
+      params.set("status", query.status);
+    }
+    if (query.taskType) {
+      params.set("taskType", query.taskType);
+    }
+    if (query.workload) {
+      params.set("workload", query.workload);
+    }
+    if (query.workloadID) {
+      params.set("workloadID", query.workloadID);
+    }
+    if (query.packageID) {
+      params.set("packageID", query.packageID);
+    }
+    return params.toString();
+  }
+
+  private normalizeWorkloadIDs(workloadIDs: string[] | string): string {
+    if (Array.isArray(workloadIDs)) {
+      if (workloadIDs.length === 0) {
+        throw new Error("workloadIDs cannot be empty");
+      }
+      if (workloadIDs.length > 50) {
+        throw new Error("workloadIDs cannot exceed 50 items");
+      }
+      const normalizedIDs = workloadIDs.map((id) => id.trim());
+      if (normalizedIDs.some((id) => id.length === 0)) {
+        throw new Error("workloadIDs must not contain empty items");
+      }
+      return normalizedIDs.join(",");
+    }
+
+    const normalized = workloadIDs.trim();
+    if (!normalized) {
+      throw new Error("workloadIDs cannot be empty");
+    }
+    return normalized;
+  }
+
+  private buildHeaders(headers?: HeadersInit): Headers {
+    const merged = new Headers(this.defaultHeaders);
+    if (this.apiKey) {
+      merged.set("Authorization", `Bearer ${this.apiKey}`);
+    }
+    if (headers) {
+      const incoming = new Headers(headers);
+      incoming.forEach((value, key) => merged.set(key, value));
+    }
+    return merged;
+  }
+
   private buildUrl(path: string): string {
     const base = this.baseUrl.endsWith("/") ? this.baseUrl.slice(0, -1) : this.baseUrl;
     const p = path.startsWith("/") ? path : `/${path}`;
     return `${base}${p}`;
+  }
+
+  private normalizeBaseUrl(baseUrl: string): string {
+    const trimmed = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
+    return trimmed.replace(/\/v1$/, "");
+  }
+
+  private isTransientTaskResultError(error: unknown): boolean {
+    if (error instanceof ApiError) {
+      return [429, 500, 502, 503, 504].includes(error.status);
+    }
+    return error instanceof TypeError;
+  }
+
+  private isAbortError(error: unknown): boolean {
+    return error instanceof Error && error.name === "AbortError";
+  }
+
+  private async delay(ms: number, signal?: AbortSignal, timedOut = false): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        cleanup();
+        resolve();
+      }, ms);
+      const onAbort = () => {
+        cleanup();
+        if (timedOut) {
+          reject(new TimeoutError());
+          return;
+        }
+        reject(this.createAbortError());
+      };
+      const cleanup = () => {
+        clearTimeout(timeoutId);
+        signal?.removeEventListener("abort", onAbort);
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+    });
+  }
+
+  private createAbortError(): Error {
+    if (typeof DOMException !== "undefined") {
+      return new DOMException("The operation was aborted.", "AbortError");
+    }
+    const err = new Error("The operation was aborted.");
+    err.name = "AbortError";
+    return err;
   }
 }
 

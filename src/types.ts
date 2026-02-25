@@ -1,54 +1,274 @@
 /**
- * Possible states of a block task during its lifecycle.
- * - `pending`: Task is queued and waiting to be processed
- * - `running`: Task is currently being executed
- * - `success`: Task completed successfully
- * - `failed`: Task failed with an error
+ * Task states from Cloud Task API v3.
  */
-export type TaskStatus = "pending" | "running" | "success" | "failed";
+export type TaskStatus = "queued" | "scheduling" | "scheduled" | "running" | "success" | "failed";
 
 /**
- * Request payload for creating a new block task.
+ * In-progress task states.
  */
-export interface BlockTaskRequest {
-  /** The name of the block to execute */
-  blockName: string;
-  /** The package name containing the block */
+export type TaskInProgressStatus = "queued" | "scheduling" | "scheduled" | "running";
+
+/**
+ * Final task states.
+ */
+export type TaskTerminalStatus = "success" | "failed";
+
+/**
+ * User task ownership type.
+ */
+export type TaskType = "user" | "shared";
+
+/**
+ * Task workload type.
+ */
+export type WorkloadType = "serverless" | "applet" | "api_applet" | "web_task";
+
+/**
+ * Base request payload for creating a task.
+ */
+export interface BaseCreateTaskRequest {
+  /** Input values passed to the workload */
+  inputValues?: Record<string, unknown>;
+}
+
+/**
+ * Request payload for creating a serverless task.
+ * `type` is optional for backward compatibility and defaults to `serverless`.
+ */
+export interface CreateServerlessTaskRequest extends BaseCreateTaskRequest {
+  type?: "serverless";
   packageName: string;
-  /** The package version. @default "latest" */
   packageVersion: string;
-  /** Input values to pass to the block */
-  inputValues: Record<string, unknown>;
-  /** Optional webhook URL to receive task completion notifications */
+  blockName: string;
+  /**
+   * Deprecated in v3 API and ignored by this SDK.
+   * Kept for backward compatibility with old callers.
+   */
   webhookUrl?: string;
-  /** Optional metadata to attach to the task */
+  /**
+   * Deprecated in v3 API and ignored by this SDK.
+   * Kept for backward compatibility with old callers.
+   */
   metadata?: Record<string, unknown>;
 }
 
 /**
- * Response returned after creating a block task.
+ * Request payload for creating an applet task.
  */
-export interface BlockTaskResponse {
-  /** The unique identifier of the created task */
+export interface CreateAppletTaskRequest extends BaseCreateTaskRequest {
+  type: "applet";
+  appletID: string;
+}
+
+/**
+ * Request payload for creating an API applet task.
+ */
+export interface CreateApiAppletTaskRequest extends BaseCreateTaskRequest {
+  type: "api_applet";
+  appletID: string;
+}
+
+/**
+ * Request payload for creating a web task.
+ */
+export interface CreateWebTaskRequest extends BaseCreateTaskRequest {
+  type: "web_task";
+  projectID: string;
+  blockName: string;
+}
+
+/**
+ * Request payload for creating a task.
+ */
+export type CreateTaskRequest =
+  | CreateServerlessTaskRequest
+  | CreateAppletTaskRequest
+  | CreateApiAppletTaskRequest
+  | CreateWebTaskRequest;
+
+/**
+ * Backward-compatible alias of old SDK request type.
+ */
+export type BlockTaskRequest = CreateServerlessTaskRequest;
+
+/**
+ * Response returned after creating a task.
+ */
+export interface CreateTaskResponse {
   taskID: string;
 }
 
 /**
- * Response containing the result of a block task.
- * @template T - Type of the result data
+ * Backward-compatible alias of old SDK response type.
  */
-export interface TaskResultResponse<T = unknown> {
-  /** Current status of the task */
+export type BlockTaskResponse = CreateTaskResponse;
+
+/**
+ * Task list item from `GET /v3/users/me/tasks`.
+ */
+export interface TaskListItem {
+  taskID: string;
+  taskType: TaskType;
+  ownerID: string;
+  subscriptionID: string | null;
+  packageID: string | null;
   status: TaskStatus;
-  /** Progress percentage (0-100), only available when task is running */
-  progress?: number;
-  /** Result data returned by the task on success */
-  resultData?: T;
-  /** Result file URL (if available) */
-  resultURL?: string;
-  /** Error message if the task failed */
-  error?: string;
+  progress: number;
+  workload: WorkloadType;
+  workloadID: string;
+  resultURL: string | null;
+  failedMessage: string | null;
+  createdAt: number;
+  updatedAt: number;
+  startTime: number | null;
+  endTime: number | null;
+  schedulerPayload: Record<string, unknown>;
 }
+
+/**
+ * Response of `GET /v3/users/me/tasks`.
+ */
+export interface TaskListResponse {
+  tasks: TaskListItem[];
+  nextToken: string | null;
+}
+
+/**
+ * Query options for `GET /v3/users/me/tasks`.
+ */
+export interface ListTasksQuery {
+  size?: number;
+  nextToken?: string;
+  status?: TaskStatus;
+  taskType?: TaskType;
+  workload?: WorkloadType;
+  workloadID?: string;
+  packageID?: string;
+}
+
+/**
+ * Item from `GET /v3/users/me/tasks/latest`.
+ */
+export interface LatestTaskItem {
+  taskID: string;
+  workloadID: string;
+  status: TaskStatus;
+  progress: number;
+  createdAt: number;
+  startTime: number | null;
+  endTime: number | null;
+}
+
+/**
+ * Response of `GET /v3/users/me/tasks/latest`.
+ */
+export type LatestTasksResponse = LatestTaskItem[];
+
+/**
+ * Response of `GET /v3/users/me/dashboard`.
+ */
+export interface DashboardResponse {
+  limits: {
+    maxConcurrency: number;
+    maxQueueSize: number;
+  };
+  count: {
+    queued: number;
+    scheduling: number;
+    scheduled: number;
+    running: number;
+  };
+  pause: {
+    paused: boolean;
+    type: string | null;
+    canResume: boolean;
+  };
+}
+
+/**
+ * User task detail object.
+ */
+export interface UserTaskDetail {
+  taskType: "user";
+  taskID: string;
+  status: TaskStatus;
+  progress: number;
+  workload: WorkloadType;
+  workloadID: string;
+  schedulerPayload: Record<string, unknown>;
+  createdAt: number;
+  startTime: number | null;
+  endTime: number | null;
+  resultURL: string | null;
+  failedMessage: string | null;
+}
+
+/**
+ * Shared task detail object.
+ */
+export interface SharedTaskDetail {
+  taskType: "shared";
+  taskID: string;
+  packageID: string | null;
+  subscriptionID: string | null;
+  status: TaskStatus;
+  progress: number;
+  schedulerPayload: Record<string, unknown>;
+  createdAt: number;
+  startTime: number | null;
+  endTime: number | null;
+  resultURL: string | null;
+  failedMessage: string | null;
+}
+
+/**
+ * Response of `GET /v3/users/me/tasks/{taskID}`.
+ */
+export type TaskDetailResponse = UserTaskDetail | SharedTaskDetail;
+
+/**
+ * Result object when task is still running.
+ */
+export interface TaskResultInProgress {
+  status: TaskInProgressStatus;
+  progress: number;
+}
+
+/**
+ * Result item returned in `resultData` when task succeeds.
+ */
+export type TaskResultDataItem = Record<string, unknown>;
+
+/**
+ * Default result data shape returned by Cloud Task API v3.
+ */
+export type TaskResultData = TaskResultDataItem[];
+
+/**
+ * Result object when task succeeded.
+ * @template T - Type of resultData returned by the API.
+ */
+export interface TaskResultSuccess<T = TaskResultData> {
+  status: "success";
+  resultURL: string | null;
+  resultData?: T;
+}
+
+/**
+ * Result object when task failed.
+ */
+export interface TaskResultFailed {
+  status: "failed";
+  error: string | null;
+}
+
+/**
+ * Response of `GET /v3/users/me/tasks/{taskID}/result`.
+ */
+export type TaskResultResponse<T = TaskResultData> =
+  | TaskResultInProgress
+  | TaskResultSuccess<T>
+  | TaskResultFailed;
 
 /**
  * Strategy for polling interval backoff.
@@ -66,7 +286,7 @@ export enum BackoffStrategy {
 export interface AwaitOptions {
   /** Base polling interval in milliseconds. @default 3000 */
   intervalMs?: number;
-  /** Maximum time to wait for task completion in milliseconds. If exceeded, throws TimeoutError */
+  /** Optional timeout in milliseconds. If omitted, polling has no SDK timeout limit. */
   timeoutMs?: number;
   /** Callback invoked on each poll with current progress and status */
   onProgress?: (progress: number | undefined, status: TaskStatus) => void;
@@ -85,14 +305,16 @@ export interface AwaitOptions {
  * Configuration options for the OomolBlockClient.
  */
 export interface ClientOptions {
-  /** API key for authentication */
-  apiKey: string;
-  /** Base URL of the task API. @default "https://cloud-task.oomol.com/v1" */
+  /** API key for authentication (optional for cookie-auth scenarios). */
+  apiKey?: string;
+  /** Base URL of the task API. @default "https://cloud-task.oomol.com" */
   baseUrl?: string;
   /** Custom fetch implementation (useful for testing or environments without native fetch) */
   fetch?: typeof fetch;
   /** Additional headers to include in all requests */
   defaultHeaders?: Record<string, string>;
+  /** Credentials mode for fetch. @default "include" */
+  credentials?: RequestCredentials;
 }
 
 /**
