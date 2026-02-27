@@ -9,11 +9,37 @@ export class ApiError extends Error {
   }
 }
 
-export class TaskFailedError extends Error {
+export const RunBlockErrorCode = {
+  INSUFFICIENT_QUOTA: "INSUFFICIENT_QUOTA",
+  PAYMENT_REQUIRED: "PAYMENT_REQUIRED",
+} as const;
+
+export type RunBlockErrorCode = (typeof RunBlockErrorCode)[keyof typeof RunBlockErrorCode];
+
+export class RunBlockError extends Error {
+  readonly statusCode?: number;
+  readonly code?: string;
+  constructor(message: string, code?: string, statusCode?: number) {
+    super(message);
+    this.name = "RunBlockError";
+    this.statusCode = statusCode;
+    this.code = code;
+  }
+}
+
+export class TaskFailedError extends RunBlockError {
   readonly taskID: string;
   readonly detail?: unknown;
-  constructor(taskID: string, detail?: unknown) {
-    super("Task execution failed");
+  constructor(
+    taskID: string,
+    detail?: unknown,
+    options?: {
+      message?: string;
+      code?: string;
+      statusCode?: number;
+    }
+  ) {
+    super(options?.message ?? "Task execution failed", options?.code, options?.statusCode);
     this.name = "TaskFailedError";
     this.taskID = taskID;
     this.detail = detail;

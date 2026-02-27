@@ -1,4 +1,4 @@
-import { ApiError, TaskFailedError, TimeoutError, UploadError } from "./errors.js";
+import { ApiError, RunBlockErrorCode, TaskFailedError, TimeoutError, UploadError } from "./errors.js";
 import {
   AwaitOptions,
   BackoffStrategy,
@@ -128,6 +128,7 @@ export class OomolBlockClient {
 
     try {
       let attempt = 0;
+      let lastPollingRequestError: unknown;
       while (true) {
         let result: TaskResultResponse<T>;
         try {
@@ -135,19 +136,26 @@ export class OomolBlockClient {
         } catch (error) {
           if (this.isAbortError(error)) {
             if (timedOut) {
-              throw new TimeoutError();
+              throw this.createTimeoutErrorWithLastPollingError(lastPollingRequestError, timeoutMs);
             }
             throw error;
           }
-          if (!this.isTransientTaskResultError(error)) {
-            throw error;
-          }
+          // Polling should only stop on explicit task terminal status, timeout, or external abort.
+          // Request-level failures (network jitter/server hiccups/etc.) are treated as retryable.
+          lastPollingRequestError = error;
           attempt += 1;
           const retryInterval =
             strategy === BackoffStrategy.Exponential
               ? Math.min(maxInterval, intervalBase * Math.pow(1.5, attempt))
               : intervalBase;
-          await this.delay(retryInterval, controller.signal, timedOut);
+          try {
+            await this.delay(retryInterval, controller.signal, timedOut);
+          } catch (delayError) {
+            if (delayError instanceof TimeoutError) {
+              throw this.createTimeoutErrorWithLastPollingError(lastPollingRequestError, timeoutMs);
+            }
+            throw delayError;
+          }
           continue;
         }
 
@@ -155,7 +163,7 @@ export class OomolBlockClient {
           return result;
         }
         if (result.status === "failed") {
-          throw new TaskFailedError(taskID, result.error ?? result);
+          throw this.createTaskFailedError(taskID, result.error ?? result);
         }
         options.onProgress?.(result.progress, result.status);
         attempt += 1;
@@ -163,7 +171,14 @@ export class OomolBlockClient {
           strategy === BackoffStrategy.Exponential
             ? Math.min(maxInterval, intervalBase * Math.pow(1.5, attempt))
             : intervalBase;
-        await this.delay(nextInterval, controller.signal, timedOut);
+        try {
+          await this.delay(nextInterval, controller.signal, timedOut);
+        } catch (delayError) {
+          if (delayError instanceof TimeoutError) {
+            throw this.createTimeoutErrorWithLastPollingError(lastPollingRequestError, timeoutMs);
+          }
+          throw delayError;
+        }
       }
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
@@ -518,15 +533,74 @@ export class OomolBlockClient {
     return trimmed.replace(/\/v1$/, "");
   }
 
-  private isTransientTaskResultError(error: unknown): boolean {
-    if (error instanceof ApiError) {
-      return [429, 500, 502, 503, 504].includes(error.status);
-    }
-    return error instanceof TypeError;
-  }
-
   private isAbortError(error: unknown): boolean {
     return error instanceof Error && error.name === "AbortError";
+  }
+
+  private createTaskFailedError(taskID: string, detail: unknown): TaskFailedError {
+    const backendMessage = this.extractBackendErrorMessage(detail);
+    const normalizedMessage = backendMessage || "Unknown error";
+    const message = `Task failed: ${normalizedMessage}`;
+    const isInsufficientQuota = this.isInsufficientQuotaMessage(normalizedMessage);
+    return new TaskFailedError(taskID, detail, {
+      message,
+      code: isInsufficientQuota ? RunBlockErrorCode.INSUFFICIENT_QUOTA : undefined,
+      statusCode: isInsufficientQuota ? 402 : undefined,
+    });
+  }
+
+  private createTimeoutErrorWithLastPollingError(lastPollingError: unknown, timeoutMs?: number): TimeoutError {
+    const minutes = typeof timeoutMs === "number" && timeoutMs > 0 ? Math.max(1, Math.round(timeoutMs / 60000)) : 0;
+    const baseMessage = minutes > 0 ? `Task polling timeout after ${minutes} minutes` : "Operation timed out";
+    if (!lastPollingError) {
+      return new TimeoutError(baseMessage);
+    }
+    const reason = this.extractBackendErrorMessage(lastPollingError) || "unknown polling request error";
+    return new TimeoutError(`${baseMessage}. Last polling request error: ${reason}`);
+  }
+
+  private extractBackendErrorMessage(detail: unknown): string | null {
+    if (detail instanceof ApiError) {
+      const bodyMessage = this.extractMessageFromUnknown(detail.body);
+      if (bodyMessage) return bodyMessage;
+      return detail.message;
+    }
+    if (detail instanceof Error) {
+      return detail.message;
+    }
+    return this.extractMessageFromUnknown(detail);
+  }
+
+  private extractMessageFromUnknown(detail: unknown): string | null {
+    if (typeof detail === "string") {
+      const msg = detail.trim();
+      return msg || null;
+    }
+    if (!detail || typeof detail !== "object") {
+      return null;
+    }
+    const message = (detail as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) {
+      return message.trim();
+    }
+    const error = (detail as { error?: unknown }).error;
+    if (typeof error === "string" && error.trim()) {
+      return error.trim();
+    }
+    return null;
+  }
+
+  private isInsufficientQuotaMessage(message: string): boolean {
+    const lower = message.toLowerCase();
+    return (
+      lower.includes("insufficient") ||
+      lower.includes("quota") ||
+      lower.includes("balance") ||
+      lower.includes("credit") ||
+      lower.includes("余额") ||
+      lower.includes("点数") ||
+      lower.includes("费用")
+    );
   }
 
   private async delay(ms: number, signal?: AbortSignal, timedOut = false): Promise<void> {

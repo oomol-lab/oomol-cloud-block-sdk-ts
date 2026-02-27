@@ -10,8 +10,8 @@
 - 支持 `serverless` / `applet` / `api_applet` / `web_task` 四类任务创建
 - 覆盖常用用户侧 API：任务创建、列表、最新任务、详情、结果、dashboard
 - 提供 `awaitResult` / `createAndWait`，简化轮询等待流程
-- 内置瞬时错误重试（`429/500/502/503/504` + 网络抖动）
-- 完整类型定义与统一错误类型（`ApiError`、`TaskFailedError`、`TimeoutError`、`UploadError`）
+- 请求失败会继续轮询，直到超时或拿到明确任务终态
+- 完整类型定义与统一错误类型（`ApiError`、`RunBlockError`、`TaskFailedError`、`TimeoutError`、`UploadError`）
 - 支持大文件分片上传（浏览器环境）
 
 ## 安装
@@ -181,7 +181,10 @@ const url = await client.uploadFile(file, {
 ### `awaitResult(taskID, options?)`
 
 - 不传 `timeoutMs`：持续轮询直到任务成功/失败或外部 `AbortSignal` 取消
-- 传入 `timeoutMs`：达到超时后抛出 `TimeoutError`
+- 传入 `timeoutMs`：达到超时后抛出 `TimeoutError`（消息格式：`Task polling timeout after X minutes`）
+- 轮询请求本身失败（如网络抖动、短暂服务异常）不会直接判定任务失败，会继续轮询直到超时或拿到明确终态
+- 若最终因超时结束且期间出现过请求错误，`TimeoutError.message` 会包含最近一次请求错误信息，便于排查
+- 任务明确失败时抛出 `TaskFailedError`，`message` 格式为 `Task failed: <backend message>`
 - 默认轮询间隔 `3000ms`
 - `backoff.strategy` 可选：
   - `BackoffStrategy.Exponential`（默认）
@@ -213,6 +216,7 @@ const url = await client.uploadFile(file, {
 ```ts
 import {
   ApiError,
+  RunBlockErrorCode,
   TaskFailedError,
   TimeoutError,
   UploadError,
@@ -222,10 +226,12 @@ try {
   const res = await client.awaitResult(taskID, { timeoutMs: 60_000 });
   console.log(res);
 } catch (err) {
-  if (err instanceof TaskFailedError) {
-    console.error("task failed:", err.taskID, err.detail);
+  if (err instanceof TaskFailedError && err.code === RunBlockErrorCode.INSUFFICIENT_QUOTA) {
+    console.error("insufficient quota:", err.message);
+  } else if (err instanceof TaskFailedError) {
+    console.error("task failed:", err.taskID, err.code, err.statusCode, err.message, err.detail);
   } else if (err instanceof TimeoutError) {
-    console.error("timeout");
+    console.error("timeout:", err.message);
   } else if (err instanceof UploadError) {
     console.error("upload error:", err.code, err.statusCode, err.message);
   } else if (err instanceof ApiError) {
