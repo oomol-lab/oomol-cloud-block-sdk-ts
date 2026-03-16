@@ -1,14 +1,12 @@
-import { ApiError, RunBlockErrorCode, TaskFailedError, TimeoutError, UploadError } from "./errors.js";
+import { ApiError, RunTaskErrorCode, TaskFailedError, TimeoutError, UploadError } from "./errors.js";
 import {
   AwaitOptions,
   BackoffStrategy,
-  BlockInfo,
   ClientOptions,
   CreateTaskRequest,
   CreateTaskResponse,
   DashboardResponse,
   LatestTasksResponse,
-  ListBlocksRequest,
   ListTasksQuery,
   SetTasksPauseResponse,
   TaskListResponse,
@@ -40,7 +38,7 @@ interface UploadFinalResponse {
   };
 }
 
-export class OomolBlockClient {
+export class OomolTaskClient {
   private readonly apiKey?: string;
   private readonly baseUrl: string;
   private readonly fetchFn: typeof fetch;
@@ -210,32 +208,6 @@ export class OomolBlockClient {
     const { taskID } = await this.createTask(request);
     const result = await this.awaitResult<T>(taskID, awaitOptions);
     return { taskID, result };
-  }
-
-  async listBlocks(request: ListBlocksRequest): Promise<BlockInfo[]> {
-    const { packageName, packageVersion, lang } = request;
-    const url = new URL(
-      `https://registry.oomol.com/-/oomol/packages/${packageName}/${packageVersion}/public-blocks`
-    );
-    if (lang) {
-      url.searchParams.set("lang", lang);
-    }
-
-    const res = await this.fetchFn(url.toString(), {
-      method: "GET",
-      headers: this.buildHeaders(),
-      credentials: this.credentials,
-    });
-    if (!res.ok) {
-      let body: unknown;
-      try {
-        body = await res.json();
-      } catch {
-        body = undefined;
-      }
-      throw new ApiError(`Failed to list blocks: ${res.status}`, res.status, body);
-    }
-    return res.json();
   }
 
   async uploadFile(file: File, options: UploadOptions = {}): Promise<string> {
@@ -442,39 +414,16 @@ export class OomolBlockClient {
   }
 
   private normalizeCreateTaskRequest(request: CreateTaskRequest): Record<string, unknown> {
-    if ("packageName" in request) {
-      const serverlessBody: Record<string, unknown> = {
-        type: "serverless",
-        packageName: request.packageName,
-        packageVersion: request.packageVersion,
-        blockName: request.blockName,
-      };
-      if (request.inputValues !== undefined) {
-        serverlessBody.inputValues = request.inputValues;
-      }
-      return serverlessBody;
-    }
-
-    if ("projectID" in request) {
-      const webTaskBody: Record<string, unknown> = {
-        type: "web_task",
-        projectID: request.projectID,
-        blockName: request.blockName,
-      };
-      if (request.inputValues !== undefined) {
-        webTaskBody.inputValues = request.inputValues;
-      }
-      return webTaskBody;
-    }
-
-    const appletBody: Record<string, unknown> = {
-      type: request.type,
-      appletID: request.appletID,
+    const serverlessBody: Record<string, unknown> = {
+      type: "serverless",
+      packageName: request.packageName,
+      packageVersion: request.packageVersion,
+      blockName: request.blockName,
     };
     if (request.inputValues !== undefined) {
-      appletBody.inputValues = request.inputValues;
+      serverlessBody.inputValues = request.inputValues;
     }
-    return appletBody;
+    return serverlessBody;
   }
 
   private buildTasksQueryString(query: ListTasksQuery): string {
@@ -562,7 +511,7 @@ export class OomolBlockClient {
     const isInsufficientQuota = this.isInsufficientQuotaMessage(normalizedMessage);
     return new TaskFailedError(taskID, detail, {
       message,
-      code: isInsufficientQuota ? RunBlockErrorCode.INSUFFICIENT_QUOTA : undefined,
+      code: isInsufficientQuota ? RunTaskErrorCode.INSUFFICIENT_QUOTA : undefined,
       statusCode: isInsufficientQuota ? 402 : undefined,
     });
   }

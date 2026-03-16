@@ -9,25 +9,25 @@ export class ApiError extends Error {
   }
 }
 
-export const RunBlockErrorCode = {
+export const RunTaskErrorCode = {
   INSUFFICIENT_QUOTA: "INSUFFICIENT_QUOTA",
   PAYMENT_REQUIRED: "PAYMENT_REQUIRED",
 } as const;
 
-export type RunBlockErrorCode = (typeof RunBlockErrorCode)[keyof typeof RunBlockErrorCode];
+export type RunTaskErrorCode = (typeof RunTaskErrorCode)[keyof typeof RunTaskErrorCode];
 
-export class RunBlockError extends Error {
+export class RunTaskError extends Error {
   readonly statusCode?: number;
   readonly code?: string;
   constructor(message: string, code?: string, statusCode?: number) {
     super(message);
-    this.name = "RunBlockError";
+    this.name = "RunTaskError";
     this.statusCode = statusCode;
     this.code = code;
   }
 }
 
-export class TaskFailedError extends RunBlockError {
+export class TaskFailedError extends RunTaskError {
   readonly taskID: string;
   readonly detail?: unknown;
   constructor(

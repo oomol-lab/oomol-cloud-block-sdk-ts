@@ -1,7 +1,7 @@
-import { OomolBlockClient, BackoffStrategy, TaskStatus } from "../src/index.js";
+import { OomolTaskClient, BackoffStrategy, TaskStatus } from "../src/index.js";
 
 async function main() {
-  const client = new OomolBlockClient({
+  const client = new OomolTaskClient({
     apiKey: process.env.OOMOL_API_KEY || "your-api-key-here",
   });
 

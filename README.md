@@ -7,12 +7,12 @@
 
 ## 特性
 
-- 支持 `serverless` / `applet` / `api_applet` / `web_task` 四类任务创建
+- 仅支持 `serverless` 任务创建
 - 覆盖常用用户侧 API：任务创建、列表、最新任务、详情、结果、dashboard
 - 支持暂停/恢复当前用户任务队列
 - 提供 `awaitResult` / `createAndWait`，简化轮询等待流程
 - 请求失败会继续轮询，直到超时或拿到明确任务终态
-- 完整类型定义与统一错误类型（`ApiError`、`RunBlockError`、`TaskFailedError`、`TimeoutError`、`UploadError`）
+- 完整类型定义与统一错误类型（`ApiError`、`RunTaskError`、`TaskFailedError`、`TimeoutError`、`UploadError`）
 - 支持大文件分片上传（浏览器环境）
 
 ## 安装
@@ -34,9 +34,9 @@ Cloud Task v3 主要支持基于 cookie（`oomol-token`）鉴权，SDK 默认 `c
 - token 场景：可传 `apiKey`，SDK 会附加 `Authorization: Bearer <apiKey>`
 
 ```ts
-import { OomolBlockClient } from "oomol-cloud-task-sdk";
+import { OomolTaskClient } from "oomol-cloud-task-sdk";
 
-const client = new OomolBlockClient({
+const client = new OomolTaskClient({
   // cookie 场景可省略 apiKey
   // apiKey: "your-token",
   credentials: "include", // 默认值
@@ -46,9 +46,9 @@ const client = new OomolBlockClient({
 ## 快速开始
 
 ```ts
-import { OomolBlockClient } from "oomol-cloud-task-sdk";
+import { OomolTaskClient } from "oomol-cloud-task-sdk";
 
-const client = new OomolBlockClient({});
+const client = new OomolTaskClient({});
 
 const { taskID, result } = await client.createAndWait(
   {
@@ -89,7 +89,6 @@ if (result.status === "success") {
 | `setTasksPause(paused)` | 暂停或恢复当前用户任务队列 |
 | `pauseUserQueue()` | 暂停当前用户任务队列 |
 | `resumeUserQueue()` | 恢复当前用户任务队列 |
-| `listBlocks({ packageName, packageVersion, lang? })` | 列出包公开 block |
 | `uploadFile(file, options?)` | 分片上传文件，返回可访问 URL |
 
 ## 常用示例
@@ -98,19 +97,9 @@ if (result.status === "success") {
 
 ```ts
 await client.createTask({
-  type: "applet",
-  appletID: "550e8400-e29b-41d4-a716-446655440016",
-  inputValues: { foo: "bar" },
-});
-
-await client.createTask({
-  type: "api_applet",
-  appletID: "550e8400-e29b-41d4-a716-446655440016",
-});
-
-await client.createTask({
-  type: "web_task",
-  projectID: "550e8400-e29b-41d4-a716-446655440016",
+  type: "serverless",
+  packageName: "@oomol/my-package",
+  packageVersion: "1.0.0",
   blockName: "main",
   inputValues: { foo: "bar" },
 });
@@ -166,16 +155,6 @@ await client.setTasksPause(true);
 await client.setTasksPause(false);
 ```
 
-### 查询公开 Blocks
-
-```ts
-const blocks = await client.listBlocks({
-  packageName: "@oomol/my-package",
-  packageVersion: "1.0.0",
-  lang: "zh-CN",
-});
-```
-
 ### 文件上传
 
 ```ts
@@ -216,9 +195,6 @@ const url = await client.uploadFile(file, {
 联合类型：
 
 - `CreateServerlessTaskRequest`
-- `CreateAppletTaskRequest`
-- `CreateApiAppletTaskRequest`
-- `CreateWebTaskRequest`
 
 ### `TaskResultResponse<T>`
 
@@ -235,7 +211,7 @@ const url = await client.uploadFile(file, {
 ```ts
 import {
   ApiError,
-  RunBlockErrorCode,
+  RunTaskErrorCode,
   TaskFailedError,
   TimeoutError,
   UploadError,
@@ -245,7 +221,7 @@ try {
   const res = await client.awaitResult(taskID, { timeoutMs: 60_000 });
   console.log(res);
 } catch (err) {
-  if (err instanceof TaskFailedError && err.code === RunBlockErrorCode.INSUFFICIENT_QUOTA) {
+  if (err instanceof TaskFailedError && err.code === RunTaskErrorCode.INSUFFICIENT_QUOTA) {
     console.error("insufficient quota:", err.message);
   } else if (err instanceof TaskFailedError) {
     console.error("task failed:", err.taskID, err.code, err.statusCode, err.message, err.detail);
@@ -264,7 +240,7 @@ try {
 ## ClientOptions
 
 ```ts
-new OomolBlockClient({
+new OomolTaskClient({
   apiKey: "optional-token",
   baseUrl: "https://cloud-task.oomol.com", // 默认值
   credentials: "include", // 默认值

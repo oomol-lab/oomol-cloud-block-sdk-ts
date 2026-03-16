@@ -26,7 +26,7 @@ export type QueuePauseType = "user" | "system" | "billing";
 /**
  * Task workload type.
  */
-export type WorkloadType = "serverless" | "applet" | "api_applet" | "web_task";
+export type WorkloadType = "serverless";
 
 /**
  * Base request payload for creating a task.
@@ -58,43 +58,9 @@ export interface CreateServerlessTaskRequest extends BaseCreateTaskRequest {
 }
 
 /**
- * Request payload for creating an applet task.
- */
-export interface CreateAppletTaskRequest extends BaseCreateTaskRequest {
-  type: "applet";
-  appletID: string;
-}
-
-/**
- * Request payload for creating an API applet task.
- */
-export interface CreateApiAppletTaskRequest extends BaseCreateTaskRequest {
-  type: "api_applet";
-  appletID: string;
-}
-
-/**
- * Request payload for creating a web task.
- */
-export interface CreateWebTaskRequest extends BaseCreateTaskRequest {
-  type: "web_task";
-  projectID: string;
-  blockName: string;
-}
-
-/**
  * Request payload for creating a task.
  */
-export type CreateTaskRequest =
-  | CreateServerlessTaskRequest
-  | CreateAppletTaskRequest
-  | CreateApiAppletTaskRequest
-  | CreateWebTaskRequest;
-
-/**
- * Backward-compatible alias of old SDK request type.
- */
-export type BlockTaskRequest = CreateServerlessTaskRequest;
+export type CreateTaskRequest = CreateServerlessTaskRequest;
 
 /**
  * Response returned after creating a task.
@@ -102,11 +68,6 @@ export type BlockTaskRequest = CreateServerlessTaskRequest;
 export interface CreateTaskResponse {
   taskID: string;
 }
-
-/**
- * Backward-compatible alias of old SDK response type.
- */
-export type BlockTaskResponse = CreateTaskResponse;
 
 /**
  * Task list item from `GET /v3/users/me/tasks`.
@@ -314,7 +275,7 @@ export interface AwaitOptions {
 }
 
 /**
- * Configuration options for the OomolBlockClient.
+ * Configuration options for the OomolTaskClient.
  */
 export interface ClientOptions {
   /** API key for authentication (optional for cookie-auth scenarios). */
@@ -341,56 +302,4 @@ export interface UploadOptions {
   retries?: number;
   /** AbortSignal to cancel the upload operation */
   signal?: AbortSignal;
-}
-
-/**
- * Parameters for listing blocks in a package.
- */
-export interface ListBlocksRequest {
-  /** Package name */
-  packageName: string;
-  /** Package version */
-  packageVersion: string;
-  /** Language code (optional), e.g., "zh-CN" */
-  lang?: string;
-}
-
-/**
- * Block type enumeration.
- */
-export type BlockType = "task" | "subflow";
-
-/**
- * Block input handle definition.
- */
-export interface BlockInputHandle {
-  handle: string;
-  description?: string;
-  jsonSchema?: unknown;
-  nullable?: boolean;
-  value?: unknown;
-}
-
-/**
- * Block output handle definition.
- */
-export interface BlockOutputHandle {
-  handle: string;
-  description?: string;
-  jsonSchema?: unknown;
-  nullable?: boolean;
-}
-
-/**
- * Block information structure.
- */
-export interface BlockInfo {
-  type: BlockType;
-  resourceName: string;
-  name: string;
-  title?: string;
-  description?: string;
-  icon?: string;
-  inputHandleDefs?: BlockInputHandle[];
-  outputHandleDefs?: BlockOutputHandle[];
 }
