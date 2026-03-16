@@ -10,6 +10,7 @@ import {
   LatestTasksResponse,
   ListBlocksRequest,
   ListTasksQuery,
+  SetTasksPauseResponse,
   TaskListResponse,
   TaskResultData,
   TaskDetailResponse,
@@ -80,6 +81,23 @@ export class OomolBlockClient {
   async getDashboard(): Promise<DashboardResponse> {
     const res = await this.request("/v3/users/me/dashboard", { method: "GET" });
     return res as DashboardResponse;
+  }
+
+  async setTasksPause(paused: boolean): Promise<SetTasksPauseResponse> {
+    const path = paused ? "/v3/user/pause" : "/v3/user/resume";
+    const res = await this.request(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    return res as SetTasksPauseResponse;
+  }
+
+  async pauseUserQueue(): Promise<SetTasksPauseResponse> {
+    return this.setTasksPause(true);
+  }
+
+  async resumeUserQueue(): Promise<SetTasksPauseResponse> {
+    return this.setTasksPause(false);
   }
 
   async getTask(taskID: string): Promise<TaskDetailResponse> {

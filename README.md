@@ -9,6 +9,7 @@
 
 - 支持 `serverless` / `applet` / `api_applet` / `web_task` 四类任务创建
 - 覆盖常用用户侧 API：任务创建、列表、最新任务、详情、结果、dashboard
+- 支持暂停/恢复当前用户任务队列
 - 提供 `awaitResult` / `createAndWait`，简化轮询等待流程
 - 请求失败会继续轮询，直到超时或拿到明确任务终态
 - 完整类型定义与统一错误类型（`ApiError`、`RunBlockError`、`TaskFailedError`、`TimeoutError`、`UploadError`）
@@ -85,6 +86,9 @@ if (result.status === "success") {
 | `getTaskResult(taskID)` | 获取任务结果 |
 | `awaitResult(taskID, options?)` | 轮询等待结果 |
 | `getDashboard()` | 获取用户 dashboard |
+| `setTasksPause(paused)` | 暂停或恢复当前用户任务队列 |
+| `pauseUserQueue()` | 暂停当前用户任务队列 |
+| `resumeUserQueue()` | 恢复当前用户任务队列 |
 | `listBlocks({ packageName, packageVersion, lang? })` | 列出包公开 block |
 | `uploadFile(file, options?)` | 分片上传文件，返回可访问 URL |
 
@@ -145,6 +149,21 @@ const taskResult = await client.getTaskResult("019234a5-b678-7def-8123-456789abc
 ```ts
 const dashboard = await client.getDashboard();
 console.log(dashboard.limits.maxConcurrency);
+```
+
+### 暂停/恢复用户队列
+
+```ts
+await client.pauseUserQueue();
+
+const dashboard = await client.getDashboard();
+console.log(dashboard.pause.paused, dashboard.pause.type, dashboard.pause.canResume);
+
+await client.resumeUserQueue();
+
+// 或者使用统一入口
+await client.setTasksPause(true);
+await client.setTasksPause(false);
 ```
 
 ### 查询公开 Blocks

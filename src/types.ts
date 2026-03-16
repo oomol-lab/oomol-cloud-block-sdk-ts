@@ -19,6 +19,11 @@ export type TaskTerminalStatus = "success" | "failed";
 export type TaskType = "user" | "shared";
 
 /**
+ * User queue pause type.
+ */
+export type QueuePauseType = "user" | "system" | "billing";
+
+/**
  * Task workload type.
  */
 export type WorkloadType = "serverless" | "applet" | "api_applet" | "web_task";
@@ -180,9 +185,16 @@ export interface DashboardResponse {
   };
   pause: {
     paused: boolean;
-    type: string | null;
+    type: QueuePauseType | null;
     canResume: boolean;
   };
+}
+
+/**
+ * Response of `POST /v3/user/pause` and `POST /v3/user/resume`.
+ */
+export interface SetTasksPauseResponse {
+  pauseType: QueuePauseType | null;
 }
 
 /**
