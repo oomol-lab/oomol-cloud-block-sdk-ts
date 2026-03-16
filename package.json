@@ -1,7 +1,7 @@
 {
-  "name": "oomol-cloud-block-sdk",
+  "name": "oomol-cloud-task-sdk",
   "version": "1.0.3",
-  "description": "TypeScript SDK for Oomol Cloud Block API",
+  "description": "TypeScript SDK for Oomol Cloud Task API",
   "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
@@ -12,7 +12,7 @@
   ],
   "keywords": [
     "oomol",
-    "cloud-block",
+    "cloud-task",
     "sdk",
     "typescript"
   ],

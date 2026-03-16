@@ -1,6 +1,6 @@
-# OOMOL Cloud Block SDK
+# OOMOL Cloud Task SDK
 
-[![npm version](https://badge.fury.io/js/oomol-cloud-block-sdk.svg)](https://www.npmjs.com/package/oomol-cloud-block-sdk)
+[![npm version](https://badge.fury.io/js/oomol-cloud-task-sdk.svg)](https://www.npmjs.com/package/oomol-cloud-task-sdk)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 用于调用 OOMOL Cloud Task API v3 的 TypeScript/JavaScript SDK。
@@ -18,7 +18,7 @@
 ## 安装
 
 ```bash
-npm install oomol-cloud-block-sdk
+npm install oomol-cloud-task-sdk
 ```
 
 ## 运行环境
@@ -34,7 +34,7 @@ Cloud Task v3 主要支持基于 cookie（`oomol-token`）鉴权，SDK 默认 `c
 - token 场景：可传 `apiKey`，SDK 会附加 `Authorization: Bearer <apiKey>`
 
 ```ts
-import { OomolBlockClient } from "oomol-cloud-block-sdk";
+import { OomolBlockClient } from "oomol-cloud-task-sdk";
 
 const client = new OomolBlockClient({
   // cookie 场景可省略 apiKey
@@ -46,7 +46,7 @@ const client = new OomolBlockClient({
 ## 快速开始
 
 ```ts
-import { OomolBlockClient } from "oomol-cloud-block-sdk";
+import { OomolBlockClient } from "oomol-cloud-task-sdk";
 
 const client = new OomolBlockClient({});
 
@@ -239,7 +239,7 @@ import {
   TaskFailedError,
   TimeoutError,
   UploadError,
-} from "oomol-cloud-block-sdk";
+} from "oomol-cloud-task-sdk";
 
 try {
   const res = await client.awaitResult(taskID, { timeoutMs: 60_000 });
